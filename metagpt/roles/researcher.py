@@ -64,7 +64,7 @@ class Researcher(Role):
         self._rc.memory.add(ret)
         return ret
 
-    def research_system_text(self, topic, current_action: Action) -> str:
+    def research_system_text(self, topic, current_task: Action) -> str:
         """ BACKWARD compatible
         This allows sub-class able to define its own system prompt based on topic.
         Based on current_action, we might switch different system_prompt
