@@ -39,6 +39,7 @@ class BaseLLM(ABC):
         format_msgs: Optional[list[dict[str, str]]] = None,
         timeout=3,
         stream=True,
+        **kwargs
     ) -> str:
         if system_msgs:
             message = self._system_msgs(system_msgs)
@@ -47,7 +48,7 @@ class BaseLLM(ABC):
         if format_msgs:
             message.extend(format_msgs)
         message.append(self._user_msg(msg))
-        rsp = await self.acompletion_text(message, stream=stream, timeout=timeout)
+        rsp = await self.acompletion_text(message, stream=stream, timeout=timeout, **kwargs)
         return rsp
 
     def _extract_assistant_rsp(self, context):
@@ -69,7 +70,7 @@ class BaseLLM(ABC):
         return rsp_text
 
     @abstractmethod
-    async def acompletion(self, messages: list[dict], timeout=3):
+    async def acompletion(self, messages: list[dict], timeout=3, **kwargs):
         """Asynchronous version of completion
         All GPTAPIs are required to provide the standard OpenAI completion interface
         [
@@ -80,7 +81,7 @@ class BaseLLM(ABC):
         """
 
     @abstractmethod
-    async def acompletion_text(self, messages: list[dict], stream=False, timeout=3) -> str:
+    async def acompletion_text(self, messages: list[dict], stream=False, timeout=3, **kwargs) -> str:
         """Asynchronous version of completion. Return str. Support stream-print"""
 
     def get_choice_text(self, rsp: dict) -> str:
