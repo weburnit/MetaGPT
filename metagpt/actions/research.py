@@ -18,7 +18,7 @@ from metagpt.provider.base_llm import BaseLLM
 from metagpt.tools.search_engine import SearchEngine
 from metagpt.tools.web_browser_engine import WebBrowserEngine, WebBrowserEngineType
 from metagpt.utils.common import OutputParser
-from metagpt.utils.text import generate_prompt_chunk
+from metagpt.utils.text import generate_prompt_chunk, reduce_message_length
 
 LANG_PROMPT = "Please respond in {language}."
 
@@ -147,9 +147,6 @@ class CollectLinks(Action):
             ret[query] = await self._search_and_rank_urls(topic, query, url_per_query)
         return ret
 
-    def reduce_message_length(self, msgs: Generator[str, None, None]) -> str:
-        for msg in msgs:
-            return msg
 
     async def _search_and_rank_urls(self, topic: str, query: str, num_results: int = 4) -> list[str]:
         """Search and rank URLs based on a query.
