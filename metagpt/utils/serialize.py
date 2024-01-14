@@ -8,61 +8,74 @@ import pickle
 from metagpt.utils.common import import_class
 
 
-def resolve_ref(ref: str, defs: dict) -> dict:
+def resolve_reference(schema: dict, ref: str) -> dict:
     """
-    Resolves a $ref to its definition in the provided defs dictionary.
+    Resolve the given reference in the schema to its definition.
+
+    :param schema: The full schema dictionary.
+    :param ref: The reference string to resolve.
+    :return: The resolved schema definition.
     """
-    ref_name = ref.split('/')[-1]  # Extract the reference name
-    return defs.get(ref_name, {})
+    # Strip the leading '#' from the ref and split the path
+    ref_path = ref.lstrip('#/').split('/')
+    ref_obj = schema
+    for path in ref_path:
+        ref_obj = ref_obj[path]
+    return ref_obj
 
 
-def get_type_from_property(property: dict, defs: dict):
+def get_python_type(schema_property: dict, schema: dict) -> tuple:
     """
-    Resolves the type of a property, handling both direct types and $ref.
+    Given a schema property, return the corresponding Python type as a tuple.
+
+    :param schema_property: The schema property to convert.
+    :param schema: The full schema dictionary.
+    :return: A tuple containing the Python type and ellipsis to indicate any value.
     """
-    # If directly provided a type, return it
-    if 'type' in property:
-        property_type = property['type']
-        if property_type == 'string':
-            return str
-        elif property_type == 'array':
-            # Check if 'items' has a direct 'type' or a '$ref'
-            if 'type' in property['items']:
-                # Direct item type (e.g. 'string')
-                if property['items']['type'] == 'string':
-                    return list[str]
-                # Other types like 'object' or further nested array
-                else:
-                    nested_item_type = get_type_from_property(property['items']['items'], defs)
-                    return list[nested_item_type]
-            elif '$ref' in property['items']:
-                # Resolve reference for items
-                items_def = resolve_ref(property['items']['$ref'], defs)
-                item_type = get_type_from_property(items_def, defs)
-                return list[item_type]
-        elif property_type == 'object':
-            return dict  # Assuming an object can be represented as a dict
-        # Add more types as necessary
-        return property_type
-    elif '$ref' in property:
-        # Resolve reference
-        ref_def = resolve_ref(property['$ref'], defs)
-        return get_type_from_property(ref_def, defs)
+    property_type = schema_property.get('type', None)
+
+    if property_type == 'string':
+        return (str, ...)
+    elif property_type == 'array':
+        # Check if there is a reference to another schema definition
+        items_ref = schema_property["items"].get('$ref')
+        if items_ref:
+            # Resolve the reference
+            items_schema = resolve_reference(schema, items_ref)
+            # Get the Python type for the resolved schema
+            return (list, [get_python_type(items_schema, schema)])
+        elif schema_property["items"]["type"] == 'string':
+            return (list, [str])
+        # Extend here with more types if necessary
+    elif property_type == 'object':
+        if 'properties' not in schema_property:
+            return (dict, ...)
+        # Map each property in the object to its corresponding Python type
+        return (dict, {key: get_python_type(value, schema) for key, value in schema_property["properties"].items()})
+    # Extend here with more types if necessary
+
+    # Fallback for types not explicitly handled
+    return (object, ...)
 
 
 def actionoutout_schema_to_mapping(schema: dict) -> dict:
     """
-    Traverse the `properties` in the first level of the schema and create a mapping.
-    This function handles `$ref` by looking up the definitions in `$defs` and resolves nested types.
-    It is backward compatible with directly provided types in `items`.
+    Generate a mapping from schema to Python types, including handling of $refs.
+
+    :param schema: The JSON schema as a dictionary.
+    :return: A dictionary mapping field names to Python types.
     """
-    mapping = {}
-    defs = schema.get('$defs', {})
-
+    mapping = dict()
     for field, property in schema["properties"].items():
-        prop_type = get_type_from_property(property, defs)
-        mapping[field] = (prop_type, ...)
-
+        # Check if the property has a $ref to another definition
+        if '$ref' in property:
+            # Resolve the reference
+            ref_schema = resolve_reference(schema, property['$ref'])
+            # Get the Python type for the resolved schema
+            mapping[field] = get_python_type(ref_schema, schema)
+        else:
+            # Directly get the Python type for the property
+            mapping[field] = get_python_type(property, schema)
     return mapping
 
 
