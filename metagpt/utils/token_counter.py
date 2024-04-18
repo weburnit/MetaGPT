@@ -11,6 +11,10 @@ ref4: https://github.com/hwchase17/langchain/blob/master/langchain/chat_models/o
 ref5: https://ai.google.dev/models/gemini
 """
 import tiktoken
+from openai.types import CompletionUsage
+from openai.types.chat import ChatCompletionChunk
+
+from metagpt.utils.ahttp_client import apost
 
 TOKEN_COSTS = {
     "gpt-3.5-turbo": {"prompt": 0.0015, "completion": 0.002},
@@ -21,12 +25,14 @@ TOKEN_COSTS = {
     "gpt-35-turbo": {"prompt": 0.0015, "completion": 0.002},
     "gpt-35-turbo-16k": {"prompt": 0.003, "completion": 0.004},
     "gpt-3.5-turbo-1106": {"prompt": 0.001, "completion": 0.002},
+    "gpt-3.5-turbo-0125": {"prompt": 0.001, "completion": 0.002},
     "gpt-4-0314": {"prompt": 0.03, "completion": 0.06},
     "gpt-4": {"prompt": 0.03, "completion": 0.06},
     "gpt-4-32k": {"prompt": 0.06, "completion": 0.12},
     "gpt-4-32k-0314": {"prompt": 0.06, "completion": 0.12},
     "gpt-4-0613": {"prompt": 0.06, "completion": 0.12},
     "gpt-4-turbo-preview": {"prompt": 0.01, "completion": 0.03},
+    "gpt-4-turbo": {"prompt": 0.01, "completion": 0.03},
     "gpt-4-0125-preview": {"prompt": 0.01, "completion": 0.03},
     "gpt-4-1106-preview": {"prompt": 0.01, "completion": 0.03},
     "gpt-4-vision-preview": {"prompt": 0.01, "completion": 0.03},  # TODO add extra image price calculator
@@ -62,6 +68,11 @@ TOKEN_COSTS = {
     "claude-2.1": {"prompt": 0.008, "completion": 0.024},
     "claude-3-sonnet-20240229": {"prompt": 0.003, "completion": 0.015},
     "claude-3-opus-20240229": {"prompt": 0.015, "completion": 0.075},
+    "yi-34b-chat-0205": {"prompt": 0.0003, "completion": 0.0003},
+    "yi-34b-chat-200k": {"prompt": 0.0017, "completion": 0.0017},
+    "microsoft/wizardlm-2-8x22b": {"prompt": 0.00108, "completion": 0.00108},  # for openrouter, start
+    "openai/gpt-3.5-turbo-0125": {"prompt": 0.0005, "completion": 0.0015},
+    "openai/gpt-4-turbo-preview": {"prompt": 0.01, "completion": 0.03},
 }
 
 
@@ -154,25 +165,25 @@ FIREWORKS_GRADE_TOKEN_COSTS = {
     "mixtral-8x7b": {"prompt": 0.4, "completion": 1.6},
 }
 
+# https://platform.openai.com/docs/models/gpt-4-and-gpt-4-turbo
 TOKEN_MAX = {
-    "gpt-3.5-turbo": 4096,
-    "gpt-3.5-turbo-0301": 4096,
-    "gpt-3.5-turbo-0613": 4096,
-    "gpt-3.5-turbo-16k": 16384,
-    "gpt-3.5-turbo-16k-0613": 16384,
-    "gpt-35-turbo": 4096,
-    "gpt-35-turbo-16k": 16384,
-    "gpt-3.5-turbo-1106": 16384,
-    "gpt-4-0314": 8192,
-    "gpt-4": 8192,
-    "gpt-4-32k": 32768,
-    "gpt-4-32k-0314": 32768,
-    "gpt-4-0613": 8192,
-    "gpt-4-turbo-preview": 128000,
     "gpt-4-0125-preview": 128000,
+    "gpt-4-turbo-preview": 128000,
+    "gpt-4-turbo": 128000,
     "gpt-4-1106-preview": 128000,
     "gpt-4-vision-preview": 128000,
     "gpt-4-1106-vision-preview": 128000,
+    "gpt-4": 8192,
+    "gpt-4-0613": 8192,
+    "gpt-4-32k": 32768,
+    "gpt-4-32k-0613": 32768,
+    "gpt-3.5-turbo-0125": 16385,
+    "gpt-3.5-turbo": 16385,
+    "gpt-3.5-turbo-1106": 16385,
+    "gpt-3.5-turbo-instruct": 4096,
+    "gpt-3.5-turbo-16k": 16385,
+    "gpt-3.5-turbo-0613": 4096,
+    "gpt-3.5-turbo-16k-0613": 16385,
     "text-embedding-ada-002": 8192,
     "chatglm_turbo": 32768,
     "bedrock/amazon.titan-text-lite-v1": 4096,
@@ -198,10 +209,15 @@ TOKEN_MAX = {
     "claude-2.1": 200000,
     "claude-3-sonnet-20240229": 200000,
     "claude-3-opus-20240229": 200000,
+    "yi-34b-chat-0205": 4000,
+    "yi-34b-chat-200k": 200000,
+    "microsoft/wizardlm-2-8x22b": 65536,
+    "openai/gpt-3.5-turbo-0125": 16385,
+    "openai/gpt-4-turbo-preview": 128000,
 }
 
 
-def count_message_tokens(messages, model="gpt-3.5-turbo-0613"):
+def count_message_tokens(messages, model="gpt-3.5-turbo-0125"):
     """Return the number of tokens used by a list of messages."""
     try:
         encoding = tiktoken.encoding_for_model(model)
@@ -215,10 +231,12 @@ def count_message_tokens(messages, model="gpt-3.5-turbo-0613"):
         "gpt-35-turbo-16k",
         "gpt-3.5-turbo-16k",
         "gpt-3.5-turbo-1106",
+        "gpt-3.5-turbo-0125",
         "gpt-4-0314",
         "gpt-4-32k-0314",
         "gpt-4-0613",
         "gpt-4-32k-0613",
+        "gpt-4-turbo",
         "gpt-4-turbo-preview",
         "gpt-4-0125-preview",
         "gpt-4-1106-preview",
@@ -231,8 +249,8 @@ def count_message_tokens(messages, model="gpt-3.5-turbo-0613"):
         tokens_per_message = 4  # every message follows <|start|>{role/name}\n{content}<|end|>\n
         tokens_per_name = -1  # if there's a name, the role is omitted
     elif "gpt-3.5-turbo" == model:
-        print("Warning: gpt-3.5-turbo may update over time. Returning num tokens assuming gpt-3.5-turbo-0613.")
-        return count_message_tokens(messages, model="gpt-3.5-turbo-0613")
+        print("Warning: gpt-3.5-turbo may update over time. Returning num tokens assuming gpt-3.5-turbo-0125.")
+        return count_message_tokens(messages, model="gpt-3.5-turbo-0125")
     elif "gpt-4" == model:
         print("Warning: gpt-4 may update over time. Returning num tokens assuming gpt-4-0613.")
         return count_message_tokens(messages, model="gpt-4-0613")
@@ -246,7 +264,7 @@ def count_message_tokens(messages, model="gpt-3.5-turbo-0613"):
     else:
         raise NotImplementedError(
             f"num_tokens_from_messages() is not implemented for model {model}. "
-            f"See https://github.com/openai/openai-python/blob/main/chatml.md "
+            f"See https://cookbook.openai.com/examples/how_to_count_tokens_with_tiktoken "
             f"for information on how messages are converted to tokens."
         )
     num_tokens = 0
@@ -298,3 +316,15 @@ def get_max_completion_tokens(messages: list[dict], model: str, default: int) ->
     if model not in TOKEN_MAX:
         return default
     return TOKEN_MAX[model] - count_message_tokens(messages) - 1
+
+
+async def get_openrouter_tokens(chunk: ChatCompletionChunk) -> CompletionUsage:
+    """refs to https://openrouter.ai/docs#querying-cost-and-stats"""
+    url = f"https://openrouter.ai/api/v1/generation?id={chunk.id}"
+    resp = await apost(url=url, as_json=True)
+    tokens_prompt = resp.get("tokens_prompt", 0)
+    completion_tokens = resp.get("tokens_completion", 0)
+    usage = CompletionUsage(
+        prompt_tokens=tokens_prompt, completion_tokens=completion_tokens, total_tokens=tokens_prompt + completion_tokens
+    )
+    return usage
